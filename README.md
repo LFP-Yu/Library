@@ -11,3 +11,6 @@ Functions of the system include
     7. Add new reader
 Readers are allowed to borrow at most 3 books at a time.
 A fine of 10p is charged on each overdued book every day.
+
+The data is stored in mysqlib.db, which should be in the same directory as the main program.
+Libraries os, datetime and sqlite3 are required in running the program.
