@@ -1,6 +1,7 @@
 # Library
 This Library System is built in Python and SQLite.
 Functions of the system include
+
     1. Show catalogue
     2. Borrow books
     3. Return books
