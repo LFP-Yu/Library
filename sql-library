@@ -1,0 +1,265 @@
+from os import system, name
+import datetime
+import sqlite3
+
+db = sqlite3.connect('mysqlib.db')
+print('Connection to Library System established!')
+cursor=db.cursor()
+
+def sys_setup():
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS books (
+            call_num CHAR(5) UNIQUE NOT NULL,
+            book_name TEXT NOT NULL,
+            isbn CHAR(13),
+            category CHAR(3) NOT NULL,
+            copies INT NOT NULL,
+            active BOOLEAN NOT NULL)
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS readers (
+            rdid CHAR(5) UNIQUE NOT NULL,
+            first_name TEXT NOT NULL,
+            last_name TEXT NOT NULL,
+            email_addr TEXT NOT NULL,
+            phone_no TEXT,
+            active BOOLEAN NOT NULL)
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS borrow (
+            call_num INT NOT NULL,
+            rdid INT NOT NULL,
+            borrow_date DATE NOT NULL,
+            due_date DATE NOT NULL,
+            return_date DATE,
+            fine_paid INT)
+    ''')
+
+    db.commit()
+    print('Tables created!')
+
+# function to add new reader record
+def add_reader():
+    while True:
+        user_id = input('Please enter an id for the reader: ').strip().upper()
+        if len(user_id) != 5:
+            print('A valid should have 5 characters')
+            continue
+        cursor.execute(f'''
+            SELECT rdid FROM readers WHERE rdid = "{user_id}"
+        ''')
+        if cursor.fetchone() != None:
+            print('Another reader has used this id. Please enter another id.')
+        else: break
+    while True:
+        user_first_name = input('\tEnter the first name of the reader: ').strip()
+        user_last_name = input('\tEnter the last name of the reader: ').strip()
+        if user_first_name == '' or user_last_name == '':
+            print('\tBoth first name and last name should not be blank.')
+        else: break
+    while True:
+        user_email = input('\tEnter the email address of the reader: ').strip()
+        try:
+            user_email.index('@')+user_email.index('.')
+        except:
+            print('\tPlease enter a valid email address.')
+        else: break
+    user_mobil = input('   Enter the phone number of the reader: ')
+    cursor.execute(f'''
+                   INSERT INTO readers (rdid, first_name, last_name, email_addr, phone_no, active)
+                   VALUES ("{user_id}","{user_first_name}","{user_last_name}","{user_email}","{user_mobil}",True)''')
+    db.commit()
+    print('New reader added.')
+
+# function to add new book in the library system
+def add_book():
+    while True:
+        book_num = input('Please enter a call number for the book: ').strip().upper()
+        if len(book_num) != 5:
+            print('A valid should have 5 characters')
+            continue
+        cursor.execute(f'''
+            SELECT * FROM books WHERE call_num = "{book_num}"
+        ''')
+        db.commit()
+        book = cursor.fetchall()
+        if book != []:
+            print(f'Do you want to add new copies to {book[0][1]} with isbn - {book[0][2]}?')
+            response = input('"Y" - yes, other entries - no : ' ).strip().upper()
+            if response == 'Y':
+                while True:
+                    try:
+                        add_copy = int(input('How many copies is added? '))
+                    except:
+                        print('Please enter a number!')
+                    else:
+                        cursor.execute(f''' UPDATE books 
+                        SET copies = {book[0][3]+add_copy} WHERE call_num = "{book_num}"''')
+                        db.commit()
+                        print(f'Number of copies of {book[0][1]} updated to {book[0][3]+add_copy}')
+                        return
+            else: continue
+        else: break
+    while True:
+        nb_name = input('\tEnter the name of the book: ').strip()
+        if nb_name == '':
+            print('The name of the book must be entered.')
+        else: break
+    nb_isbn = input('\tEnter the ISBN of the book: ').strip()
+    nb_cat = input('\tEnter the category of the book: ')[:3].upper()
+    while True:
+        try:
+            add_copy = int(input('How many copies are added? '))
+        except:
+            print('Please enter a number!')
+        else:
+            if add_copy < 0:
+                print('Number of copies should be a positive number.')
+            else: break
+    cursor.execute(f'''
+                   INSERT INTO books (call_num, book_name, isbn, category, copies, active)
+                   VALUES ("{book_num}","{nb_name}","{nb_isbn}","{nb_cat}",{add_copy},True)''')
+    db.commit()
+    print(f'{add_copy} cop(y/ies) of {nb_name} with call number {book_num} is added.')
+
+# function to show catalogue of the library by order of category and names of the books
+def catalogue():
+    cursor.execute(''' 
+        SELECT call_num,book_name,isbn,category,copies 
+        FROM books WHERE active ORDER BY category ASC, book_name ASC;
+        ''')
+    print('The books in the library are:')
+    print('CAT  CALLNO NAME                                               ISBN          COPY')
+    for item in cursor.fetchall():
+        cn,bname,isbn,cat,copy = (i for i in item)
+        print (f'{cat}  {cn}  {bname:50} {isbn}  {copy}')
+
+# function to show reader's outstanding borrowing records
+def reader_status():
+    who = input('Enter reader id: ').strip().upper()
+    cursor.execute(f' SELECT first_name, last_name, email_addr FROM readers WHERE rdid="{who}" ')
+    reader = cursor.fetchone()
+    if reader == None:
+        print('No such reader.')
+    else:
+        cursor.execute(f' SELECT call_num, due_date FROM borrow WHERE rdid="{who}" AND return_date IS NULL')
+        result = cursor.fetchall()
+        print (f'Reader {reader[0]} {reader[1]} with email address {reader[2]} has', end=' ')
+        if len(result) == 0:
+            print(' no outstanding borrowing record.')
+        else:
+            print(f'{len(result)} outstanding borrowing record(s):')
+            for item, dd in result:
+                cursor.execute(f' SELECT book_name FROM books WHERE call_num="{item}" ')
+                bkn = cursor.fetchone()
+                print(f'{item} {bkn[0]} - Due date: {dd}')
+
+# function to show overdued books
+def book_overdue():
+    cursor.execute(f' SELECT rdid, call_num, due_date FROM borrow WHERE due_date < "{current_date}" AND return_date IS NULL')
+    result = cursor.fetchall()
+    if len(result) == 0:
+        print('No overdue record.')
+    else:
+        print('Overdue book records:')
+        for n, item in enumerate(result):
+            cursor.execute(f' SELECT first_name, last_name, email_addr FROM readers WHERE rdid="{item[0]}" ')
+            fn, ln, emaddr = cursor.fetchone()
+            cursor.execute(f' SELECT book_name FROM books WHERE call_num="{item[1]}" ')
+            bkn = cursor.fetchone()
+            print(f'{n+1}. {item[1]} {bkn[0]} - Due date: {item[2]}')
+            print (f'   borrowed by reader {item[0]} {fn} {ln} with email address {emaddr}.')
+
+# function to process book borrowing
+def borrow_bk():
+    who = input('Enter reader id: ').strip().upper()
+    cursor.execute(f''' SELECT rdid FROM readers WHERE rdid="{who}" ''')
+    if cursor.fetchone() != None:
+        cursor.execute(f''' SELECT COUNT(*) FROM borrow WHERE rdid="{who}" AND return_date IS NULL''')
+        result = cursor.fetchone()
+        print(f"Reader {who} has already borrowed {result[0]} books.")
+        if result[0] < 3:
+            which = input('Enter call number of the book to be borrowed: ').strip().upper()
+            cursor.execute(f''' SELECT copies-(SELECT COUNT(*) FROM borrow WHERE call_num="{which}" AND return_date IS NULL) FROM books WHERE call_num="{which}"''')
+            result = cursor.fetchone()
+            if result==None or result[0] > 0:
+                due = current_date + datetime.timedelta(days=14)
+                cursor.execute(f''' INSERT INTO borrow(rdid, call_num, borrow_date, due_date)
+                            VALUES ("{who}", "{which}", "{current_date}", "{due}")''')
+                db.commit()
+                cursor.execute(f' SELECT book_name FROM books WHERE call_num = "{which}" ')
+                bkname = cursor.fetchone()
+                print(f"Borrow record of {bkname[0]} updated successfully.")
+            else: print('No spare copies in the library.')
+        else: print('Maximum number of books borrowed has reached.')
+    else: print('No such reader in the system.')
+
+# function to process book return
+def return_bk():
+    who = input('Enter reader id: ').strip().upper()
+    which = input('Enter call number of the book to be borrowed: ').strip().upper()
+    cursor.execute(f' SELECT * FROM borrow WHERE rdid="{who}" AND call_num="{which}" AND return_date IS NULL ')
+    icall_num, irdid, iborrow_date, idue_date, ireturn_date, ifine_paid = cursor.fetchone()
+    idue = datetime.datetime.strptime(idue_date, '%Y-%m-%d').date()
+    if icall_num != None:
+        if current_date > idue:
+            late_days = (current_date-idue).days
+            fine_incurred = late_days * 10
+            print (f'Book returned late for {late_days} days. You have to pay a fine of {fine_incurred}p.')
+        else:
+            fine_incurred = 0    
+        cursor.execute(f''' UPDATE borrow SET return_date = "{current_date}", fine_paid = {fine_incurred} 
+                       WHERE rdid="{who}" AND call_num="{which}" AND return_date IS NULL ''')
+        db.commit()
+        cursor.execute(f' SELECT book_name FROM books WHERE call_num = "{which}" ')
+        bkname = cursor.fetchone()
+        print(f"{bkname[0]} returned successfully.")
+    else:
+        print('Borrowing record not found.')
+
+
+sys_setup()
+current_date = datetime.date.today()
+while True:
+    print(f'\nToday is {current_date.strftime("%x")}')
+    print('''Please select a funtion:
+    1. Show catalogue
+    2. Borrow books
+    3. Return books
+    4. Show borrowing records of reader
+    5. Show overdue borrowing records
+    6. Add books
+    7. Add new reader
+    0. Exit''')
+
+    selected = input('Enter a function number: ').strip()
+    if selected == '0':
+        break
+    elif selected == '1':
+        catalogue()
+    elif selected == '2':
+        borrow_bk()
+    elif selected == '3':
+        return_bk()
+    elif selected == '4':
+        reader_status()
+    elif selected == '5':
+        book_overdue()
+    elif selected == '6':
+        add_book()
+    elif selected == '7':
+        add_reader()
+
+    dummy = input('Press enter to continue ...')
+
+    # for windows
+    if name == 'nt':
+        system('cls')
+ 
+    # for mac and linux(here, os.name is 'posix')
+    else:
+        system('clear')
+
+db.close()
